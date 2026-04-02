@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>音樂節奏視覺化 - 完整功能版</title>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --panel-bg: #fdfdfd;
+            --border-color: #e0e0e0;
+            --text-main: #2c3e50;
+            --accent-green: #1eae5e;
+            --panel-dark: #34495e;
+        }
+
+        body {
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+        }
+
+        .container {
+            width: 95%;
+            max-width: 900px;
+            background: white;
+            padding: 20px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        h2 { text-align: center; margin: 0; font-size: 22px; }
+
+        #visualizer {
+            width: 100%;
+            height: 350px;
+            background-color: var(--panel-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 15px;
+            display: block;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        button.mode-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 18px;
+            font-size: 14px;
+            cursor: pointer;
+            border: 1px solid var(--border-color);
+            border-radius: 25px;
+            background: white;
+            font-weight: bold;
+            transition: 0.2s;
+        }
+
+        button.mode-btn.active {
+            background-color: var(--accent-green);
+            color: white;
+            border-color: var(--accent-green);
+        }
+
+        .note-icon { width: 20px; height: 20px; fill: currentColor; }
+
+        .bottom-console {
+            background: var(--panel-dark);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 15px;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr; /* 三欄佈局 */
+            align-items: center;
+            gap: 15px;
+        }
+
+        .setting-item { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+        .bpm-slider { flex-grow: 1; cursor: pointer; width: 100px; }
+        .bpm-value { color: var(--accent-green); font-weight: bold; min-width: 65px; }
+        
+        select { 
+            padding: 6px; 
+            border-radius: 8px; 
+            border: none; 
+            font-weight: bold; 
+            background: white; 
+            color: #333;
+            cursor: pointer;
+        }
+
+        #audioBtn {
+            padding: 10px;
+            border-radius: 20px;
+            border: none;
+            background: #e74c3c;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        @media (max-width: 768px) {
+            .bottom-console { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🎶 音樂節奏視覺化 - 跑道跨欄教具</h2>
+    <canvas id="visualizer"></canvas>
+
+    <div class="controls">
+        <button class="mode-btn" id="btn-whole" onclick="setNote('whole')"><span id="icon-whole"></span> 全音符</button>
+        <button class="mode-btn" id="btn-half" onclick="setNote('half')"><span id="icon-half"></span> 二分音符</button>
+        <button class="mode-btn active" id="btn-quarter" onclick="setNote('quarter')"><span id="icon-quarter"></span> 四分音符</button>
+        <button class="mode-btn" id="btn-eighth" onclick="setNote('eighth')"><span id="icon-eighth"></span> 八分音符</button>
+    </div>
+
+    <div class="bottom-console">
+        <div class="setting-item">
+            <label>速度</label>
+            <input type="range" id="bpmRange" min="30" max="240" value="60" class="bpm-slider">
+            <span class="bpm-value" id="bpmDisplay">60 BPM</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div class="setting-item">
+                <label>音色</label>
+                <select id="soundType">
+                    <option value="woodblock">電子木魚</option>
+                    <option value="drum">重低音鼓</option>
+                    <option value="piano">鋼琴短音</option>
+                </select>
+            </div>
+            <div class="setting-item">
+                <label>物品</label>
+                <select id="objectType">
+                    <option value="mario">超級瑪莉</option>
+                    <option value="ball">經典圓球</option>
+                </select>
+            </div>
+        </div>
+
+        <button id="audioBtn" onclick="toggleAudio()">靜音中 (點擊開啟)</button>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('visualizer');
+    const ctx = canvas.getContext('2d');
+    const bpmRange = document.getElementById('bpmRange');
+    const bpmDisplay = document.getElementById('bpmDisplay');
+    const audioBtn = document.getElementById('audioBtn');
+    const objectSelect = document.getElementById('objectType');
+    const soundSelect = document.getElementById('soundType');
+
+    let audioCtx = null, isAudioEnabled = false, bpm = 60;
+    let currentMode = 'quarter', startTime = performance.now() / 1000, lastCycle = -1;
+    const durations = { whole: 4, half: 2, quarter: 1, eighth: 0.5 };
+
+    const icons = {
+        whole: `<svg class="note-icon" viewBox="0 0 100 100"><ellipse cx="50" cy="50" rx="30" ry="20" stroke="currentColor" stroke-width="8" fill="none"/></svg>`,
+        half: `<svg class="note-icon" viewBox="0 0 100 100"><ellipse cx="40" cy="70" rx="18" ry="12" stroke="currentColor" stroke-width="8" fill="none"/><path d="M58 70 L58 20" stroke="currentColor" stroke-width="8"/></svg>`,
+        quarter: `<svg class="note-icon" viewBox="0 0 100 100"><ellipse cx="40" cy="70" rx="18" ry="12" fill="currentColor"/><path d="M58 70 L58 20" stroke="currentColor" stroke-width="8"/></svg>`,
+        eighth: `<svg class="note-icon" viewBox="0 0 100 100"><ellipse cx="40" cy="70" rx="18" ry="12" fill="currentColor"/><path d="M58 70 L58 20 Q 80 30 80 50" stroke="currentColor" stroke-width="8" fill="none"/></svg>`
+    };
+
+    function init() {
+        Object.keys(icons).forEach(k => document.getElementById('icon-'+k).innerHTML = icons[k]);
+        resize();
+        requestAnimationFrame(draw);
+    }
+
+    function resize() {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = canvas.offsetWidth * dpr;
+        canvas.height = canvas.offsetHeight * dpr;
+        ctx.scale(dpr, dpr);
+    }
+
+    function toggleAudio() {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        isAudioEnabled = !isAudioEnabled;
+        audioBtn.innerText = isAudioEnabled ? "🔊 聲音已開啟" : "靜音中 (點擊開啟)";
+        audioBtn.style.background = isAudioEnabled ? "#1eae5e" : "#e74c3c";
+    }
+
+    function playSound() {
+        if (!isAudioEnabled || !audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        const now = audioCtx.currentTime;
+        
+        const type = soundSelect.value;
+        if (type === 'woodblock') {
+            osc.frequency.setValueAtTime(880, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        } else if (type === 'drum') {
+            osc.frequency.setValueAtTime(120, now);
+            osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        } else {
+            osc.frequency.setValueAtTime(523.25, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+        }
+
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(now + 0.3);
+    }
+
+    function setNote(mode) {
+        currentMode = mode;
+        startTime = performance.now() / 1000;
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('btn-' + mode).classList.add('active');
+    }
+
+    bpmRange.oninput = function() {
+        bpm = this.value;
+        bpmDisplay.innerText = bpm + " BPM";
+    };
+
+    function drawMario(c) {
+        c.save();
+        c.scale(0.8, 0.8);
+        c.translate(-25, -50);
+        c.fillStyle = "#FF0000"; c.fillRect(10, 0, 35, 12); c.fillRect(5, 5, 45, 7);
+        c.fillStyle = "#FFCC99"; c.fillRect(10, 12, 30, 25);
+        c.fillStyle = "#663300"; c.fillRect(32, 28, 12, 5);
+        c.fillStyle = "#FFCC99"; c.fillRect(38, 22, 10, 8);
+        c.fillStyle = "#0000FF"; c.fillRect(10, 37, 30, 25);
+        c.fillStyle = "#FF0000"; c.fillRect(15, 37, 7, 15); c.fillRect(28, 37, 7, 15);
+        c.restore();
+    }
+
+    function draw() {
+        const now = performance.now() / 1000;
+        const cycle = (60 / bpm) * durations[currentMode];
+        const elapsed = now - startTime;
+        const progress = (elapsed % cycle) / cycle;
+
+        if (Math.floor(elapsed / cycle) !== lastCycle) {
+            playSound();
+            lastCycle = Math.floor(elapsed / cycle);
+        }
+
+        const w = canvas.width / (window.devicePixelRatio || 1);
+        const h = canvas.height / (window.devicePixelRatio || 1);
+        ctx.clearRect(0, 0, w, h);
+
+        const groundLineY = h * 0.8;
+        const centerX = w / 2;
+
+        // 1. 跑道
+        ctx.strokeStyle = "#ddd";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, groundLineY); ctx.lineTo(w, groundLineY);
+        ctx.stroke();
+
+        // 2. 跨欄 (由右至左)
+        const hurdleX = centerX + (w / 2) - (w * progress);
+        ctx.strokeStyle = "#e74c3c";
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(hurdleX - 40, groundLineY - 30); ctx.lineTo(hurdleX + 40, groundLineY - 30);
+        ctx.moveTo(hurdleX - 35, groundLineY - 30); ctx.lineTo(hurdleX - 35, groundLineY);
+        ctx.moveTo(hurdleX + 35, groundLineY - 30); ctx.lineTo(hurdleX + 35, groundLineY);
+        ctx.stroke();
+
+        // 3. 物品跳動
+        const jumpMaxH = h * 0.45;
+        const yOffset = Math.sin(progress * Math.PI) * jumpMaxH;
+        const currentY = groundLineY - yOffset;
+
+        // 陰影
+        const shadowOpacity = 0.2 * (1 - yOffset / jumpMaxH);
+        ctx.beginPath();
+        ctx.ellipse(centerX, groundLineY + 5, 25 * (1 - yOffset / jumpMaxH), 5, 0, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(0,0,0,${shadowOpacity})`;
+        ctx.fill();
+
+        ctx.save();
+        ctx.translate(centerX, currentY);
+        if (objectSelect.value === 'mario') {
+            drawMario(ctx);
+        } else {
+            const g = ctx.createRadialGradient(-5, -5, 5, 0, 0, 25);
+            g.addColorStop(0, '#fff'); g.addColorStop(1, '#ccc');
+            ctx.beginPath(); ctx.arc(0, 0, 25, 0, Math.PI*2);
+            ctx.fillStyle = g; ctx.fill(); 
+            ctx.strokeStyle = "#999"; ctx.lineWidth = 1; ctx.stroke();
+        }
+        ctx.restore();
+
+        requestAnimationFrame(draw);
+    }
+
+    window.onload = init;
+    window.onresize = resize;
+</script>
+
+</body>
+</html>
